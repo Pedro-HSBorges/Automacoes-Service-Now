@@ -1,5 +1,6 @@
 import requests
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,6 +8,8 @@ load_dotenv()
 user: str = os.getenv("USUARIO")
 password: str = os.getenv("SENHA")
 instance: str = os.getenv("INSTANCE")
+_lista = json.loads(os.getenv("MARCADORES")) #Pega a lista de marcadores no .env
+marcadores = {m["group_id"]: m for m in _lista} #Transforma a lista em dicionário para consulta
 
 def buscar_incidentes(path: str, params: dict) -> requests.Response:
     """essa aqui faz a consulta pra buscar os incidentes, ela recebe o caminho da API e os parâmetros de consulta, e retorna a resposta da requisição"""
@@ -56,9 +59,41 @@ def validar_grupos(assignment_group):
     
     return resultado[0].get("name", "Sem grupo de atribuição")
 
-def validar_marcador(sys_id: str) -> bool:
+def validar_marcador(sys_id: str, assignment_group: str) -> bool:
 
-    path = "/api/now/table/label_key"
+    path = "/api/now/table/label_entry"
+    params = {
+        "sysparm_fields": "sys_id",
+        "sysparm_query": f"table_key={sys_id}"
+    }
+    response = requests.get(
+        instance + path,
+        params=params,
+        auth=(user, password)
+    )
+    response.raise_for_status()
+    resultado = response.json().get("result")
+    if resultado and resultado[0].get("label", {}).get("value") == marcadores[assignment_group].get("sys_id"):
+        return True
+    return False
+
+def atrelar_marcador(sys_id: str, label: str, number: str) -> None:
+    path = "/api/now/table/label_entry"
+    data = {
+        "table_key": sys_id,
+        "table": "incident",
+        "label": label,
+        "title": "Incident + " + number
+    }
+    response = requests.post(
+        instance + path,
+        json=data,
+        auth=(user, password)
+    )
+    response.raise_for_status()
+
+def deletar_marcador(sys_id: str) -> None:
+    path = "/api/now/table/label_entry"
     params = {
         "sysparm_query": f"table_key={sys_id}"
     }
@@ -68,20 +103,13 @@ def validar_marcador(sys_id: str) -> bool:
         auth=(user, password)
     )
     response.raise_for_status()
-    return bool(response.json().get("result", []))
-
-def atrelar_marcador(sys_id: str, label: str) -> None:
-    path = "/api/now/table/label_key"
-    data = {
-        "table_key": sys_id,
-        "label": label
-    }
-    response = requests.post(
-        instance + path,
-        json=data,
-        auth=(user, password)
-    )
-    response.raise_for_status()
+    resultado = response.json().get("result", [])
+    for entry in resultado:
+        delete_response = requests.delete(
+            instance + path + f"/{entry['sys_id']}",
+            auth=(user, password)
+        )
+        delete_response.raise_for_status()
 
 def main():
     params: dict = {
@@ -112,6 +140,15 @@ def main():
                         
                         grupo = validar_grupos(assignment_group_name)
                         print("Grupo de atribuição do chamado:", grupo)
+                        if grupo != "Sem grupo de atribuição":
+                            validacao = validar_marcador(chamado.get("sys_id"), assignment_group_name)
+                            if validacao:
+                                print("Marcador já atrelado.")
+                            else:
+                                print("Marcador não atrelado, atrelando agora...")
+                                deletar_marcador(chamado.get("sys_id"))
+                                atrelar_marcador(chamado.get("sys_id"), marcadores[assignment_group_name].get("sys_id"), incidente.get("number"))
+                                print("Marcador atrelado com sucesso.")
                         print("-" * 40)
                 else:
                     print("Nenhum chamado atrelado encontrado.")
