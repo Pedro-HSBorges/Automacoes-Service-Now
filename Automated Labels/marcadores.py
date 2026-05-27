@@ -15,7 +15,7 @@ def buscar_casos() -> requests.Response:
     """essa aqui faz a consulta pra buscar os casos, ela recebe o caminho da API e os parâmetros de consulta, e retorna a resposta da requisição"""
     path = "/api/now/table/sn_customerservice_case"
     params = {
-        "sysparm_query": "state!=6^state!=7^ORDERBYDESCsys_created_on", # Filtra os casos que não estão fechados ou cancelados
+        "sysparm_query": "stateNOT IN6,7^ORDERBYDESCsys_created_on", # Filtra os casos que não estão fechados ou cancelados
         "sysparm_fields": "number,sys_id,case"
     }
     response = requests.get(
@@ -83,6 +83,7 @@ def validar_marcador(sys_id: str, assignment_group: str) -> bool:
     return False
 
 def atrelar_marcador(sys_id: str, label: str, case: str) -> None:
+    """essa aqui atrela o marcador, ela recebe o sys_id do caso, o sys_id do marcador e o número do caso pra colocar no título do marcador"""
     path = "/api/now/table/label_entry"
     data = {
         "table_key": sys_id,
@@ -98,6 +99,7 @@ def atrelar_marcador(sys_id: str, label: str, case: str) -> None:
     response.raise_for_status()
 
 def deletar_marcador(sys_id: str) -> None:
+    """essa aqui deleta o marcador, ela recebe o sys_id do caso, busca os marcadores atrelados e deleta um por um"""
     path = "/api/now/table/label_entry"
     params = {
         "sysparm_query": f"table_key={sys_id}"
@@ -117,7 +119,6 @@ def deletar_marcador(sys_id: str) -> None:
         delete_response.raise_for_status()
 
 def main():
-
     while True:
         try:
             response: requests.Response = buscar_casos()
