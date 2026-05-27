@@ -8,11 +8,16 @@ load_dotenv()
 user: str = os.getenv("USUARIO")
 password: str = os.getenv("SENHA")
 instance: str = os.getenv("INSTANCE")
-_lista = json.loads(os.getenv("MARCADORES")) #Pega a lista de marcadores no .env
-marcadores = {m["group_id"]: m for m in _lista} #Transforma a lista em dicionário para consulta
+_lista = json.loads(os.getenv("MARCADORES")) # Pega a lista de marcadores no .env
+marcadores = {m["group_id"]: m for m in _lista} # Transforma a lista em dicionário para consulta
 
-def buscar_incidentes(path: str, params: dict) -> requests.Response:
-    """essa aqui faz a consulta pra buscar os incidentes, ela recebe o caminho da API e os parâmetros de consulta, e retorna a resposta da requisição"""
+def buscar_casos() -> requests.Response:
+    """essa aqui faz a consulta pra buscar os casos, ela recebe o caminho da API e os parâmetros de consulta, e retorna a resposta da requisição"""
+    path = "/api/now/table/sn_customerservice_case"
+    params = {
+        "sysparm_query": "state!=6^state!=7^ORDERBYDESCsys_created_on", # Filtra os casos que não estão fechados ou cancelados
+        "sysparm_fields": "number,sys_id,case"
+    }
     response = requests.get(
         instance + path,
         params=params,
@@ -37,7 +42,7 @@ def buscar_chamado_atrelado(sys_id: str) -> requests.Response:
     return response
 
 def validar_grupos(assignment_group):
-    """mano, esse aqui valida o nome do grupo de atribuição, se tiver, se não tiver, ele retorna "Sem grupo de atribuição" """
+    """esse aqui valida o nome do grupo de atribuição, se tiver, se não tiver, ele retorna "Sem grupo de atribuição" """
     if not assignment_group:
         return "Sem grupo de atribuição"
     
@@ -60,10 +65,10 @@ def validar_grupos(assignment_group):
     return resultado[0].get("name", "Sem grupo de atribuição")
 
 def validar_marcador(sys_id: str, assignment_group: str) -> bool:
-
+    """essa aqui valida se o marcador já tá atrelado, se tiver, ele retorna True, se não tiver, ele retorna False"""
     path = "/api/now/table/label_entry"
     params = {
-        "sysparm_fields": "sys_id",
+        "sysparm_fields": "sys_id,label",
         "sysparm_query": f"table_key={sys_id}"
     }
     response = requests.get(
@@ -77,13 +82,13 @@ def validar_marcador(sys_id: str, assignment_group: str) -> bool:
         return True
     return False
 
-def atrelar_marcador(sys_id: str, label: str, number: str) -> None:
+def atrelar_marcador(sys_id: str, label: str, case: str) -> None:
     path = "/api/now/table/label_entry"
     data = {
         "table_key": sys_id,
-        "table": "incident",
+        "table": "sn_customerservice_case",
         "label": label,
-        "title": "Incident + " + number
+        "title": "Caso - " + case
     }
     response = requests.post(
         instance + path,
@@ -112,20 +117,16 @@ def deletar_marcador(sys_id: str) -> None:
         delete_response.raise_for_status()
 
 def main():
-    params: dict = {
-        "sysparm_query": "ORDERBYDESCsys_created_on",
-        "sysparm_fields": "number,sys_id,assignment_group"
-    }
 
     while True:
         try:
-            response: requests.Response = buscar_incidentes("/api/now/table/incident", params)
-            incidentes: list = response.json().get("result", [])
+            response: requests.Response = buscar_casos()
+            casos: list = response.json().get("result", [])
 
-            for incidente in incidentes:
-                print("Número:", incidente.get("number"))
+            for caso in casos:
+                print("Número:", caso.get("number"))
 
-                chamado_atrelado_response: requests.Response = buscar_chamado_atrelado(incidente.get("sys_id"))
+                chamado_atrelado_response: requests.Response = buscar_chamado_atrelado(caso.get("sys_id"))
                 chamados_atrelados: list = chamado_atrelado_response.json().get("result", [])
 
                 if chamados_atrelados:
@@ -141,21 +142,23 @@ def main():
                         grupo = validar_grupos(assignment_group_name)
                         print("Grupo de atribuição do chamado:", grupo)
                         if grupo != "Sem grupo de atribuição":
-                            validacao = validar_marcador(chamado.get("sys_id"), assignment_group_name)
+                            validacao = validar_marcador(caso.get("sys_id"), assignment_group_name)
                             if validacao:
                                 print("Marcador já atrelado.")
                             else:
                                 print("Marcador não atrelado, atrelando agora...")
-                                deletar_marcador(chamado.get("sys_id"))
-                                atrelar_marcador(chamado.get("sys_id"), marcadores[assignment_group_name].get("sys_id"), incidente.get("number"))
+                                deletar_marcador(caso.get("sys_id"))
+                                atrelar_marcador(caso.get("sys_id"), marcadores[assignment_group_name].get("sys_id"), caso.get("number"))
                                 print("Marcador atrelado com sucesso.")
                         print("-" * 40)
                 else:
                     print("Nenhum chamado atrelado encontrado.")
                     print("Atrelar marcador de aguardando atendimento.")
+                    deletar_marcador(caso.get("sys_id"))
+                    atrelar_marcador(caso.get("sys_id"), marcadores["N/A"].get("sys_id"), caso.get("number"))
                     print("-" * 40)
         except requests.RequestException as e:
-            print("Erro ao buscar incidentes:", e)
+            print("Erro ao buscar casos:", e)
         except KeyboardInterrupt:
             print("Processo interrompido pelo usuário.")
             break
