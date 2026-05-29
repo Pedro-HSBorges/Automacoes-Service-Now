@@ -38,5 +38,5 @@ MARCADORES(EXEMPLO)=[{"Nome": "Network", "sys_id": "6b16434d83c14710e0d8fb96feaa
 ## Uso
 
 ```bash
-python main.py
+python marcadores.py
 ```
