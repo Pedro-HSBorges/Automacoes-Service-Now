@@ -1,0 +1,30 @@
+{
+    "marcadores": [
+        {
+            "group_id":"287ebd7da9fe198100f92cc8d1d2154e",
+            "sys_id":"6b16434d83c14710e0d8fb96feaad37c",
+            "name":"Network"
+        },
+        {
+            "group_id":"d625dccec0a8016700a222a0f7900d06",
+            "sys_id":"76068f0d83c14710e0d8fb96feaad3d4",
+            "name":"Service Desk"
+        },
+        {
+            "group_id":"8a4dde73c6112278017a6a4baf547aa7",
+            "sys_id":"a6560fc983c1c310e0d8fb96feaad321",
+            "name":"Software"
+        },
+        {
+            "group_id":"8a5055c9c61122780043563ef53438e3",
+            "sys_id":"c846cf098381c310e0d8fb96feaad37d",
+            "name":"Hardware"
+        },
+        {
+            "group_id":"N/A",
+            "sys_id":"30785f4183854710e0d8fb96feaad31e",
+            "name":"Atendimento"
+        }
+    ],
+    "intervalo_segundos":60
+}

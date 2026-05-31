@@ -37,11 +37,20 @@ cp .env.example .env
 copy .env.example .env
 ```
 
-- Configurar MARCADORES conforme exemplo:
-```env
-MARCADORES=[{"Nome": "Network", "sys_id": "6b16434d83c14710e0d8fb96feaad37c", "group_id": "287ebd7da9fe198100f92cc8d1d2154e"},{"Nome": "Service Desk", "sys_id": "76068f0d83c14710e0d8fb96feaad3d4", "group_id": "d625dccec0a8016700a222a0f7900d06"}]
-```
+Alterar a config caso necessário de acordo com os parâmetros do ambiente:
 
+```json
+{
+    "marcadores": [
+        {
+            "group_id":"287ebd7da9fe198100f92cc8d1d2154e",
+            "sys_id":"6b16434d83c14710e0d8fb96feaad37c",
+            "name":"Network"
+        }
+    ],
+    "intervalo_segundos":60
+}
+```
 
 ## Uso
 

@@ -4,6 +4,7 @@ import json
 import time
 import logging
 from dotenv import load_dotenv
+from pathlib import Path
 
 load_dotenv()
 
@@ -14,13 +15,17 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Carrega configuração de marcadores e intervalo do arquivo JSON
+BASE_DIR = Path(__file__).parent
+with open(BASE_DIR / "config.json") as f:
+    config = json.load(f)
+
 user: str = os.getenv("USUARIO")
 password: str = os.getenv("SENHA")
 instance: str = os.getenv("INSTANCE")
-_lista = json.loads(os.getenv("MARCADORES"))
-marcadores = {m["group_id"]: m for m in _lista}
+marcadores = {m["group_id"]: m for m in config["marcadores"]}
 
-INTERVALO_SEGUNDOS = 60
+INTERVALO_SEGUNDOS = config["intervalo_segundos"]
 
 
 def buscar_casos() -> requests.Response:
@@ -48,22 +53,10 @@ def buscar_chamado_atrelado(sys_id: str) -> requests.Response:
 
 
 def validar_grupos(assignment_group: str) -> str:
-    """Retorna o nome do grupo de atribuição pelo sys_id, ou 'Sem grupo de atribuição'."""
+    """Valida o grupo de atribuição do chamado e retorna o nome do grupo caso esteja cadastrado nos marcadores."""
     if not assignment_group:
         return "Sem grupo de atribuição"
-
-    path = "/api/now/table/sys_user_group"
-    params = {
-        "sysparm_fields": "name",
-        "sysparm_query": f"sys_id={assignment_group}"
-    }
-    response = requests.get(instance + path, params=params, auth=(user, password))
-    response.raise_for_status()
-
-    resultado = response.json().get("result", [])
-    if not resultado:
-        return "Sem grupo de atribuição"
-    return resultado[0].get("name", "Sem grupo de atribuição")
+    return marcadores.get(assignment_group, {}).get("name", "Sem grupo de atribuição")
 
 
 def buscar_marcadores_atrelados(sys_id: str) -> list:
