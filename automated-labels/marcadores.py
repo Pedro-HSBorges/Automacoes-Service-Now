@@ -92,7 +92,6 @@ def deletar_marcadores(atrelados: list) -> None:
         )
         response.raise_for_status()
 
-
 def atrelar_marcador(sys_id: str, label: str, case: str) -> None:
     """Cria uma entrada de marcador para o caso."""
     path = "/api/now/table/label_entry"
