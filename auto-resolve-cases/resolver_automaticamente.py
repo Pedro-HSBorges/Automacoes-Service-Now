@@ -10,7 +10,7 @@ load_dotenv()
 # Configuração do logging
 logging.basicConfig(
     level=logging.INFO, 
-    format='%(asctime)s.%(msecs)03d - %(levelname)s - %(message)s',
+    format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S')
 
 # Variáveis de ambiente
@@ -23,7 +23,7 @@ def buscar_chamados(query: str, table: str) -> dict:
     path = f"{INSTANCE}/api/now/table/{table}"
     params = {
         "sysparm_query": query,  # Consulta para filtrar os chamados
-        "sysparm_limit": "100",  # Limite de resultados
+        "sysparm_limit": "1000",  # Limite de resultados
         "sysparm_fields": "sys_id,number"  # Campos que queremos retornar
     }
     try:

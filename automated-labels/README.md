@@ -18,9 +18,14 @@ Automação para gerenciamento de marcadores (labels) no ServiceNow via API.
 
 ## Instalação
 
+Clone o repositório
 ```bash
 git clone https://github.com/Pedro-HSBorges/Automacoes-Service-Now.git
-cd Automacoes-Service-Now/automated_labels
+cd Automacoes-Service-Now/automated-labels
+```
+Baixe os requisitos:
+```bash
+pip install -r requirements.txt
 ```
 
 ## Configuração

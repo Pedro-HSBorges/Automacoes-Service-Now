@@ -6,9 +6,17 @@ Um projeto simples para automação de resolução de casos no ServiceNow.
 
 Este repositório contém o script `resolver_automaticamente.py`, que automatiza o fechamento ou resolução de chamados de forma programática.
 
-## Requisitos
+## Instalação
 
-- Python 3.8 ou superior
+Clone o repositório
+```bash
+git clone https://github.com/Pedro-HSBorges/Automacoes-Service-Now.git
+cd Automacoes-Service-Now/auto-resolve-cases
+```
+Baixe os requisitos:
+```bash
+pip install -r requirements.txt
+```
 
 ## Configuração
 
