@@ -26,5 +26,7 @@
             "name":"Atendimento"
         }
     ],
-    "intervalo_segundos":60
+    "intervalo_segundos":60,
+    "max_falhas_consecutivas":3,
+    "intervalo_healthcheck_segundos":180
 }

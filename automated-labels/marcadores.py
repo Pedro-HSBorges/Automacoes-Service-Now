@@ -3,12 +3,16 @@ import os
 import json
 import time
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from pathlib import Path
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).parent
+
 logging.basicConfig(
+    filename=BASE_DIR / "marcadores.log",
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
@@ -16,7 +20,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # Carrega configuração de marcadores e intervalo do arquivo JSON
-BASE_DIR = Path(__file__).parent
 with open(BASE_DIR / "config.json") as f:
     config = json.load(f)
 
@@ -26,6 +29,8 @@ instance: str = os.getenv("INSTANCE")
 marcadores = {m["group_id"]: m for m in config["marcadores"]}
 
 INTERVALO_SEGUNDOS = config["intervalo_segundos"]
+MAX_FALHAS_CONSECUTIVAS = config.get("max_falhas_consecutivas", 5)
+INTERVALO_HEALTHCHECK = config.get("intervalo_healthcheck_segundos", 180)
 
 
 def buscar_casos() -> requests.Response:
@@ -73,7 +78,7 @@ def buscar_marcadores_atrelados(sys_id: str) -> list:
 
 def marcador_esta_correto(atrelados: list, sys_id_esperado: str) -> bool:
     """Retorna True somente se há exatamente um marcador atrelado e é o correto.
-    
+
     Se houver múltiplos marcadores (mesmo que um deles seja o correto),
     retorna False para forçar limpeza e recriação.
     """
@@ -91,6 +96,7 @@ def deletar_marcadores(atrelados: list) -> None:
             auth=(user, password)
         )
         response.raise_for_status()
+
 
 def atrelar_marcador(sys_id: str, label: str, case: str) -> None:
     """Cria uma entrada de marcador para o caso."""
@@ -121,6 +127,21 @@ def aplicar_marcador(sys_id: str, numero: str, sys_id_marcador: str) -> None:
     log.info("Caso %s — marcador aplicado com sucesso.", numero)
 
 
+def healthcheck(inicio: datetime, ciclos_ok: int, falhas_consecutivas: int, ultimo_erro: str | None) -> None:
+    """Registra um resumo periódico do estado da automação no log."""
+    uptime = datetime.now() - inicio
+    horas, resto = divmod(int(uptime.total_seconds()), 3600)
+    minutos, segundos = divmod(resto, 60)
+    status = "OK" if falhas_consecutivas == 0 else "DEGRADADO"
+    log.info(
+        "[HEALTHCHECK] Status: %s | Uptime: %dh%02dm%02ds | Ciclos bem-sucedidos: %d | "
+        "Falhas consecutivas: %d/%d | Último erro: %s",
+        status, horas, minutos, segundos,
+        ciclos_ok, falhas_consecutivas, MAX_FALHAS_CONSECUTIVAS,
+        ultimo_erro or "nenhum"
+    )
+
+
 def processar_caso(caso: dict) -> None:
     """Processa um único caso: valida chamados atrelados e aplica o marcador correto."""
     numero = caso.get("number")
@@ -129,8 +150,12 @@ def processar_caso(caso: dict) -> None:
 
     try:
         chamados_atrelados = buscar_chamado_atrelado(sys_id).json().get("result", [])
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "N/A"
+        log.error("Caso %s — erro HTTP %s ao buscar chamados atrelados: %s", numero, status, e)
+        return
     except requests.RequestException as e:
-        log.error("Caso %s — erro ao buscar chamados atrelados: %s", numero, e)
+        log.error("Caso %s — erro de conexão ao buscar chamados atrelados: %s", numero, e)
         return
 
     if chamados_atrelados:
@@ -146,8 +171,12 @@ def processar_caso(caso: dict) -> None:
 
             try:
                 grupo = validar_grupos(assignment_group_id)
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else "N/A"
+                log.error("Caso %s — erro HTTP %s ao validar grupo: %s", numero, status, e)
+                continue
             except requests.RequestException as e:
-                log.error("Caso %s — erro ao validar grupo: %s", numero, e)
+                log.error("Caso %s — erro de conexão ao validar grupo: %s", numero, e)
                 continue
 
             log.info("Caso %s — grupo de atribuição: %s", numero, grupo)
@@ -166,37 +195,81 @@ def processar_caso(caso: dict) -> None:
             try:
                 sys_id_marcador = marcadores[assignment_group_id].get("sys_id")
                 aplicar_marcador(sys_id, numero, sys_id_marcador)
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else "N/A"
+                log.error("Caso %s — erro HTTP %s ao aplicar marcador: %s", numero, status, e)
             except requests.RequestException as e:
-                log.error("Caso %s — erro ao aplicar marcador: %s", numero, e)
+                log.error("Caso %s — erro de conexão ao aplicar marcador: %s", numero, e)
 
     else:
         log.info("Caso %s — sem chamado atrelado, aplicando marcador de aguardando.", numero)
         try:
             sys_id_marcador = marcadores["N/A"].get("sys_id")
             aplicar_marcador(sys_id, numero, sys_id_marcador)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "N/A"
+            log.error("Caso %s — erro HTTP %s ao aplicar marcador de aguardando: %s", numero, status, e)
         except requests.RequestException as e:
-            log.error("Caso %s — erro ao aplicar marcador de aguardando: %s", numero, e)
+            log.error("Caso %s — erro de conexão ao aplicar marcador de aguardando: %s", numero, e)
 
     log.info("-" * 40)
 
 
 def main():
     log.info("Iniciando automação de marcadores.")
+    falhas_consecutivas = 0
+    ciclos_ok = 0
+    ultimo_erro = None
+    inicio = datetime.now()
+    last_healthcheck = time.monotonic()
+
     while True:
+        now = time.monotonic()
+        if now - last_healthcheck >= INTERVALO_HEALTHCHECK:
+            healthcheck(inicio, ciclos_ok, falhas_consecutivas, ultimo_erro)
+            last_healthcheck = now
+
         try:
             casos = buscar_casos().json().get("result", [])
             log.info("Total de casos encontrados: %d", len(casos))
             for caso in casos:
                 processar_caso(caso)
-        except requests.RequestException as e:
-            log.error("Erro ao buscar casos: %s", e)
+            falhas_consecutivas = 0
+            ciclos_ok += 1
+            ultimo_erro = None
+
         except KeyboardInterrupt:
             log.info("Processo interrompido pelo usuário.")
             break
 
-        log.info("Ciclo concluído. Próxima execução em %ds.", INTERVALO_SEGUNDOS)
-        time.sleep(INTERVALO_SEGUNDOS)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "N/A"
+            falhas_consecutivas += 1
+            ultimo_erro = f"HTTP {status}"
+            log.error(
+                "Erro HTTP %s ao buscar casos: %s [falha consecutiva %d/%d]",
+                status, e, falhas_consecutivas, MAX_FALHAS_CONSECUTIVAS
+            )
+
+        except requests.RequestException as e:
+            falhas_consecutivas += 1
+            ultimo_erro = str(e)[:120]
+            log.error(
+                "Erro de conexão ao buscar casos: %s [falha consecutiva %d/%d]",
+                e, falhas_consecutivas, MAX_FALHAS_CONSECUTIVAS
+            )
+
+        if falhas_consecutivas >= MAX_FALHAS_CONSECUTIVAS:
+            log.critical(
+                "Limite de %d falhas consecutivas atingido. Encerrando processo para reinício supervisionado.",
+                MAX_FALHAS_CONSECUTIVAS
+            )
+            raise SystemExit(1)
+
+        intervalo = INTERVALO_SEGUNDOS * (2 ** falhas_consecutivas) if falhas_consecutivas else INTERVALO_SEGUNDOS
+        log.info("Ciclo concluído. Próxima execução em %ds.", intervalo)
+        time.sleep(intervalo)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
