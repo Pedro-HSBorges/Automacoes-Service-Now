@@ -127,7 +127,7 @@ def aplicar_marcador(sys_id: str, numero: str, sys_id_marcador: str) -> None:
     log.info("Caso %s — marcador aplicado com sucesso.", numero)
 
 
-def healthcheck(inicio: datetime, ciclos_ok: int, falhas_consecutivas: int, ultimo_erro: str | None) -> None:
+def healthcheck(inicio: datetime, ciclos_ok: int, falhas_consecutivas: int, ultimo_erro: str | None, casos_processados: int) -> None:
     """Registra um resumo periódico do estado da automação no log."""
     uptime = datetime.now() - inicio
     horas, resto = divmod(int(uptime.total_seconds()), 3600)
@@ -135,9 +135,9 @@ def healthcheck(inicio: datetime, ciclos_ok: int, falhas_consecutivas: int, ulti
     status = "OK" if falhas_consecutivas == 0 else "DEGRADADO"
     log.info(
         "[HEALTHCHECK] Status: %s | Uptime: %dh%02dm%02ds | Ciclos bem-sucedidos: %d | "
-        "Falhas consecutivas: %d/%d | Último erro: %s",
+        "Casos processados: %d | Falhas consecutivas: %d/%d | Último erro: %s",
         status, horas, minutos, segundos,
-        ciclos_ok, falhas_consecutivas, MAX_FALHAS_CONSECUTIVAS,
+        ciclos_ok, casos_processados, falhas_consecutivas, MAX_FALHAS_CONSECUTIVAS,
         ultimo_erro or "nenhum"
     )
 
@@ -222,11 +222,12 @@ def main():
     ultimo_erro = None
     inicio = datetime.now()
     last_healthcheck = time.monotonic()
-
+    casos_processados = 0
     while True:
         now = time.monotonic()
+        
         if now - last_healthcheck >= INTERVALO_HEALTHCHECK:
-            healthcheck(inicio, ciclos_ok, falhas_consecutivas, ultimo_erro)
+            healthcheck(inicio, ciclos_ok, falhas_consecutivas, ultimo_erro, casos_processados)
             last_healthcheck = now
 
         try:
@@ -234,6 +235,7 @@ def main():
             log.info("Total de casos encontrados: %d", len(casos))
             for caso in casos:
                 processar_caso(caso)
+                casos_processados += 1
             falhas_consecutivas = 0
             ciclos_ok += 1
             ultimo_erro = None
