@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).parent
 
 logging.basicConfig(
     filename=BASE_DIR / "marcadores.log",
+    encoding='utf-8',
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
@@ -23,10 +24,13 @@ log = logging.getLogger(__name__)
 with open(BASE_DIR / "config.json") as f:
     config = json.load(f)
 
-user: str = os.getenv("USUARIO")
-password: str = os.getenv("SENHA")
-instance: str = os.getenv("INSTANCE")
+user = os.getenv("USUARIO")
+password = os.getenv("SENHA")
+instance = os.getenv("INSTANCE")
 marcadores = {m["group_id"]: m for m in config["marcadores"]}
+
+if user is None or password is None or instance is None:
+    raise ValueError("Variáveis de ambiente não configuradas")
 
 INTERVALO_SEGUNDOS = config["intervalo_segundos"]
 MAX_FALHAS_CONSECUTIVAS = config.get("max_falhas_consecutivas", 5)
