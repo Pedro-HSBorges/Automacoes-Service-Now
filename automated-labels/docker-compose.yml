@@ -1,0 +1,9 @@
+services:
+  marcadores:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./marcadores.log:/app/marcadores.log
+      - ./config.json:/app/config.json
