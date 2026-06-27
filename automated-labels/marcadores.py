@@ -24,12 +24,12 @@ log = logging.getLogger(__name__)
 with open(BASE_DIR / "config.json") as f:
     config = json.load(f)
 
-user = os.getenv("USUARIO")
-password = os.getenv("SENHA")
-instance = os.getenv("INSTANCE")
-marcadores = {m["group_id"]: m for m in config["marcadores"]}
+USER = os.getenv("USUARIO")
+PASSWORD = os.getenv("SENHA")
+INSTANCE = os.getenv("INSTANCE")
+MARCADORES = {m["group_id"]: m for m in config["marcadores"]}
 
-if user is None or password is None or instance is None:
+if USER is None or PASSWORD is None or INSTANCE is None:
     raise ValueError("Variáveis de ambiente não configuradas")
 
 INTERVALO_SEGUNDOS = config["intervalo_segundos"]
@@ -39,24 +39,24 @@ INTERVALO_HEALTHCHECK = config.get("intervalo_healthcheck_segundos", 180)
 
 def buscar_casos() -> requests.Response:
     """Busca casos abertos (não fechados nem cancelados), ordenados por data de criação."""
-    path = "/api/now/table/sn_customerservice_case"
+    path = "api/now/table/sn_customerservice_case"
     params = {
         "sysparm_query": "stateNOT IN6,7^ORDERBYDESCsys_created_on",
         "sysparm_fields": "number,sys_id,case"
     }
-    response = requests.get(instance + path, params=params, auth=(user, password))
+    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD))
     response.raise_for_status()
     return response
 
 
 def buscar_chamado_atrelado(sys_id: str) -> requests.Response:
     """Busca incidentes atrelados ao caso pelo sys_id."""
-    path = "/api/now/table/incident"
+    path = "api/now/table/incident"
     params = {
         "sysparm_query": f"parent_incident={sys_id}",
         "sysparm_fields": "number,sys_id,assignment_group"
     }
-    response = requests.get(instance + path, params=params, auth=(user, password))
+    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD))
     response.raise_for_status()
     return response
 
@@ -65,71 +65,72 @@ def validar_grupos(assignment_group: str) -> str:
     """Valida o grupo de atribuição do chamado e retorna o nome do grupo caso esteja cadastrado nos marcadores."""
     if not assignment_group:
         return "Sem grupo de atribuição"
-    return marcadores.get(assignment_group, {}).get("name", "Sem grupo de atribuição")
+    return MARCADORES.get(assignment_group, {}).get("name", "Sem grupo de atribuição")
 
 
 def buscar_marcadores_atrelados(sys_id: str) -> list:
     """Retorna todos os marcadores atrelados ao caso."""
-    path = "/api/now/table/label_entry"
+    path = "api/now/table/label_entry"
     params = {
         "sysparm_fields": "sys_id,label",
         "sysparm_query": f"table_key={sys_id}"
     }
-    response = requests.get(instance + path, params=params, auth=(user, password))
+    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD))
     response.raise_for_status()
     return response.json().get("result", [])
 
 
-def marcador_esta_correto(atrelados: list, sys_id_esperado: str) -> bool:
-    """Retorna True somente se há exatamente um marcador atrelado e é o correto.
-
-    Se houver múltiplos marcadores (mesmo que um deles seja o correto),
-    retorna False para forçar limpeza e recriação.
+def validar_marcadores(atrelados: list, sys_id_esperado: str) -> dict:
     """
-    if len(atrelados) != 1:
-        return False
-    return atrelados[0].get("label", {}).get("value") == sys_id_esperado
+    Realiza a validação dos marcadores atrelados ao caso, caso hajam incorretos, ele adiciona a uma lista e o que for correto ele mantém
+    """
+    correto = False
+    incorretos: list = []
+    for marcador in atrelados:
+        label_value = marcador["label"]["value"]
+        if label_value != sys_id_esperado:
+            incorretos.append(marcador["sys_id"])
+        else:
+            correto = True
+    return {"incorretos": incorretos, "correto": correto}
 
 
 def deletar_marcadores(atrelados: list) -> None:
     """Remove todos os marcadores da lista fornecida."""
-    base_path = "/api/now/table/label_entry"
-    for entry in atrelados:
+    base_path = "api/now/table/label_entry"
+    for marcador in atrelados:
         response = requests.delete(
-            instance + base_path + f"/{entry['sys_id']}",
-            auth=(user, password)
+            INSTANCE + base_path + f"/{marcador}",
+            auth=(USER, PASSWORD)
         )
         response.raise_for_status()
 
 
-def atrelar_marcador(sys_id: str, label: str, case: str) -> None:
+def criar_marcador(sys_id: str, label: str, case: str) -> None:
     """Cria uma entrada de marcador para o caso."""
-    path = "/api/now/table/label_entry"
+    path = "api/now/table/label_entry"
     data = {
         "table_key": sys_id,
         "table": "sn_customerservice_case",
         "label": label,
         "title": "Caso - " + case
     }
-    response = requests.post(instance + path, json=data, auth=(user, password))
+    response = requests.post(INSTANCE + path, json=data, auth=(USER, PASSWORD))
     response.raise_for_status()
 
 
 def aplicar_marcador(sys_id: str, numero: str, sys_id_marcador: str) -> None:
     """Garante que o caso tenha exatamente o marcador correto, sem extras."""
     atrelados = buscar_marcadores_atrelados(sys_id)
-
-    if marcador_esta_correto(atrelados, sys_id_marcador):
-        log.info("Caso %s — marcador já está correto, nada a fazer.", numero)
-        return
-
-    if atrelados:
-        log.info("Caso %s — removendo %d marcador(es) incorreto(s)/extra(s).", numero, len(atrelados))
-        deletar_marcadores(atrelados)
-
-    atrelar_marcador(sys_id, sys_id_marcador, numero)
-    log.info("Caso %s — marcador aplicado com sucesso.", numero)
-
+    marcadores = validar_marcadores(atrelados, sys_id_marcador)
+    if marcadores["incorretos"]:
+        deletar_marcadores(marcadores["incorretos"])
+        log.info("Removendo marcadores incorretos")
+    if not marcadores["correto"]:
+        criar_marcador(sys_id, sys_id_marcador, numero)
+        log.info("Caso %s — marcador aplicado com sucesso.", numero)
+    else:
+        log.info("Caso %s — marcador correto já se encontra aplicado.", numero)
 
 def healthcheck(inicio: datetime, ciclos_ok: int, falhas_consecutivas: int, ultimo_erro: str | None, casos_processados: int) -> None:
     """Registra um resumo periódico do estado da automação no log."""
@@ -188,7 +189,7 @@ def processar_caso(caso: dict) -> None:
             if grupo == "Sem grupo de atribuição":
                 continue
 
-            if assignment_group_id not in marcadores:
+            if assignment_group_id not in MARCADORES:
                 log.warning(
                     "Caso %s — grupo '%s' não encontrado nos marcadores configurados. "
                     "Adicione-o no .env.",
@@ -197,7 +198,7 @@ def processar_caso(caso: dict) -> None:
                 continue
 
             try:
-                sys_id_marcador = marcadores[assignment_group_id].get("sys_id")
+                sys_id_marcador = MARCADORES[assignment_group_id].get("sys_id")
                 aplicar_marcador(sys_id, numero, sys_id_marcador)
             except requests.HTTPError as e:
                 status = e.response.status_code if e.response is not None else "N/A"
@@ -206,9 +207,9 @@ def processar_caso(caso: dict) -> None:
                 log.error("Caso %s — erro de conexão ao aplicar marcador: %s", numero, e)
 
     else:
-        log.info("Caso %s — sem chamado atrelado, aplicando marcador de aguardando.", numero)
+        log.info("Caso %s — sem chamado atrelado, aplicando marcador de aguardando atendimento.", numero)
         try:
-            sys_id_marcador = marcadores["N/A"].get("sys_id")
+            sys_id_marcador = MARCADORES["N/A"].get("sys_id")
             aplicar_marcador(sys_id, numero, sys_id_marcador)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "N/A"
