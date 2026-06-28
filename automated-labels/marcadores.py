@@ -12,7 +12,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 
 logging.basicConfig(
-    filename=BASE_DIR / "marcadores.log",
+    #filename=BASE_DIR / "marcadores.log",
     encoding='utf-8',
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
@@ -56,8 +56,15 @@ def buscar_chamado_atrelado(sys_id: str) -> requests.Response:
         "sysparm_query": f"parent_incident={sys_id}",
         "sysparm_fields": "number,sys_id,assignment_group"
     }
-    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD))
-    response.raise_for_status()
+    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD)).json()
+    
+    if not response["result"]:
+        path = "api/now/table/sc_req_item"
+        params = {
+            "sysparm_query": f"parent={sys_id}",
+            "sysparm_fields": "number,sys_id,assignment_group"
+        }
+        response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD)).json()
     return response
 
 
@@ -154,7 +161,7 @@ def processar_caso(caso: dict) -> None:
     log.info("Processando caso: %s", numero)
 
     try:
-        chamados_atrelados = buscar_chamado_atrelado(sys_id).json().get("result", [])
+        chamados_atrelados = buscar_chamado_atrelado(sys_id).get("result", [])
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else "N/A"
         log.error("Caso %s — erro HTTP %s ao buscar chamados atrelados: %s", numero, status, e)
