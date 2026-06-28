@@ -12,7 +12,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 
 logging.basicConfig(
-    #filename=BASE_DIR / "marcadores.log",
+    filename=BASE_DIR / "marcadores.log",
     encoding='utf-8',
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
