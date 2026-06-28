@@ -49,16 +49,28 @@ def buscar_casos() -> requests.Response:
     return response
 
 
-def buscar_chamado_atrelado(sys_id: str) -> requests.Response:
-    """Busca incidentes atrelados ao caso pelo sys_id."""
+def buscar_chamado_atrelado(sys_id: str) -> dict:
+    """Busca incidentes atrelados ao caso pelo sys_id, com fallback para sc_req_item."""
     path = "api/now/table/incident"
     params = {
         "sysparm_query": f"parent_incident={sys_id}",
         "sysparm_fields": "number,sys_id,assignment_group"
     }
-    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD))
+    response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD), timeout=10)
     response.raise_for_status()
-    return response
+    data = response.json()
+    
+    if not data.get("result", []):
+        path = "api/now/table/sc_req_item"
+        params = {
+            "sysparm_query": f"parent={sys_id}",
+            "sysparm_fields": "number,sys_id,assignment_group"
+        }
+        response = requests.get(INSTANCE + path, params=params, auth=(USER, PASSWORD), timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    
+    return data
 
 
 def validar_grupos(assignment_group: str) -> str:
@@ -154,7 +166,7 @@ def processar_caso(caso: dict) -> None:
     log.info("Processando caso: %s", numero)
 
     try:
-        chamados_atrelados = buscar_chamado_atrelado(sys_id).json().get("result", [])
+        chamados_atrelados = buscar_chamado_atrelado(sys_id).get("result", [])
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else "N/A"
         log.error("Caso %s — erro HTTP %s ao buscar chamados atrelados: %s", numero, status, e)
